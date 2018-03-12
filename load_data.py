@@ -160,8 +160,8 @@ if __name__ == '__main__':
         upload_to_cloud()
         convert_and_download()
         env = os.environ.copy()
-        with open("/etc/profile.d/fdaaa_staging.sh") as e:
-            for k, v in re.findall(r"^export ([A-Z][A-Z0-9_]*)=(\S*)", e.read(), re.MULTILINE):
+        with open(os.environ.get("UPLOAD_SETTINGS", "/etc/profile.d/fdaaa_staging.sh")) as e:
+            for k, _, v in re.findall(r"""^\s+export\s+([A-Z][A-Z0-9_]*)=([\"']?)(\S+|.*)\2""", e.read(), re.MULTILINE):
                 env[k] = v
         subprocess.check_call(["/var/www/fdaaa_staging/venv/bin/python", "/var/www/fdaaa_staging/clinicaltrials-act-tracker/clinicaltrials/manage.py", "process_data", "--input-csv=/tmp/clinical_trials.csv", "--settings=frontend.settings"], env=env)
         notify_slack("""Today's data uploaded to FDAAA staging: https://staging-fdaaa.ebmdatalab.net.  If this looks good, tell ebmbot to 'update fdaaa staging'""")
