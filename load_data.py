@@ -1,12 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import traceback
-
-from bigquery import Client
-from bigquery import TableExporter
-from bigquery import wait_for_job
-from bigquery import gen_job_name
-import xmltodict
+import sys
 import os
 import subprocess
 import json
@@ -17,27 +12,47 @@ import shutil
 import requests
 import contextlib
 import re
-from google.cloud.exceptions import NotFound
-from xml.parsers.expat import ExpatError
+import zipfile
+from csv import DictWriter
+
+import extraction
 
 
-STORAGE_PREFIX = 'clinicaltrials/'
-WORKING_VOLUME = '/mnt/volume-lon1-01/'   # location with at least 10GB space
-WORKING_DIR = WORKING_VOLUME + STORAGE_PREFIX
+STORAGE_PREFIX = 'clinicaltrials-data/'
+WORKING_VOLUME = os.environ.get('DATA_DIR', '/mnt/volume-lon1-01/')   # location with at least 10GB space
+WORKING_DIR = os.path.join(WORKING_VOLUME, STORAGE_PREFIX)
 
 logging.basicConfig(filename='{}data_load.log'.format(WORKING_VOLUME), level=logging.DEBUG)
 
-def raw_json_name():
-    date = datetime.datetime.now().strftime('%Y-%m-%d')
-    return "raw_clincialtrials_json_{}.csv".format(date)
+
+def document_stream(zip_filename):
+    with zipfile.ZipFile(zip_filename, 'r') as enormous_zipfile:
+        for name in enormous_zipfile.namelist():
+            if "NCT" not in name or not name.endswith(".xml"):
+                continue
+            yield name, enormous_zipfile.read(name)
 
 
-def postprocessor(path, key, value):
-    """Convert key names to something bigquery compatible
-    """
-    if key.startswith('#') or key.startswith('@'):
-        key = key[1:]
-    return key, value
+def fabricate_csv(input_filename, output_filename):
+    _, temp_output_filename = tempfile.mkstemp()
+
+    columns = [
+            'nct_id', 'act_flag', 'included_pact_flag', 'location', 'exported', 'phase', 'start_date', 'available_completion_date', 'legacy_fda_regulated', 'primary_completion_date_used', 'has_results', 'results_submitted_date', 'has_certificate', 'certificate_date', 'results_due', 'study_status', 'study_type', 'primary_purpose', 'fda_reg_drug', 'fda_reg_device', 'sponsor', 'sponsor_type', 'url', 'title', 'condition', 'condition_mesh', 'intervention', 'intervention_mesh',
+
+            'brief_title', 'collaborators', 'defaulted_cd_flag', 'defaulted_date', 'defaulted_pcd_flag', 'discrep_date_status', 'late_cert', 'official_title', ]
+    with open(temp_output_filename, 'w') as out:
+        csv = DictWriter(out, columns)
+        csv.writeheader()
+        for name, xmldoc in document_stream(input_filename):
+            try:
+                row = extraction.document_to_record(xmldoc)
+                if row:
+                    csv.writerow(row)
+            except Exception as exc:
+                logging.exception("Couldn't get data from %s.", name)
+                raise
+
+    os.rename(temp_output_filename, output_filename)
 
 
 def download_and_extract():
@@ -46,24 +61,9 @@ def download_and_extract():
     """
     logging.info("Downloading. This takes at least 30 mins on a fast connection!")
     url = 'https://clinicaltrials.gov/AllPublicXML.zip'
-
-    # download and extract
-    container = tempfile.mkdtemp(prefix=STORAGE_PREFIX.rstrip(os.sep), dir=WORKING_VOLUME)
-    try:
-        data_file = os.path.join(container, "data.zip")
-        subprocess.check_call(["wget", "-q", "-O", data_file, url])
-        # Can't "wget|unzip" in a pipe because zipfiles have index at end of file.
-        with contextlib.suppress(OSError):
-            shutil.rmtree(WORKING_DIR)
-        subprocess.check_call(["unzip", "-q", "-o", "-d", WORKING_DIR, data_file])
-    finally:
-        shutil.rmtree(container)
-
-
-def upload_to_cloud():
-    # XXX we should periodically delete old ones of these
-    logging.info("Uploading to cloud")
-    subprocess.check_call(["gsutil", "cp", "{}{}".format(WORKING_DIR, raw_json_name()), "gs://ebmdatalab/{}".format(STORAGE_PREFIX)])
+    data_file = os.path.join(WORKING_DIR, "clinicaltrialsgov-allxml.zip")
+    return data_file
+    subprocess.check_call(["wget", "-q", "-O", data_file, url])
 
 
 def notify_slack(message):
@@ -83,82 +83,13 @@ def notify_slack(message):
         )
 
 
-def convert_to_json():
-    logging.info("Converting to JSON...")
-    dpath = WORKING_DIR + 'NCT*/'
-    files = [x for x in sorted(glob.glob(dpath + '*.xml'))]
-    start = datetime.datetime.now()
-    completed = 0
-    with open(WORKING_DIR + raw_json_name(), 'a') as f2:
-        for source in files:
-            logging.info("Converting %s", source)
-            with open(source, 'rb') as f:
-                try:
-                    f2.write(
-                        json.dumps(
-                            xmltodict.parse(
-                                f,
-                                item_depth=0,
-                                postprocessor=postprocessor)
-                        ) + "\n")
-                except ExpatError:
-                    logging.warn("Unable to parse %s", source)
-
-        completed += 1
-        if completed % 100 == 0:
-            elapsed = datetime.datetime.now() - start
-            per_file = elapsed.seconds / completed
-            remaining = int(per_file * (len(files) - completed) / 60.0)
-            logging.info("%s minutes remaining", remaining)
-
-
-
-def convert_and_download():
-    logging.info("Executing SQL in cloud and downloading results...")
-    storage_path = STORAGE_PREFIX + raw_json_name()
-    schema = [
-        {'name': 'json', 'type': 'string'},
-    ]
-    client = Client('clinicaltrials')
-    tmp_client = Client('tmp_eu')
-    table_name = 'current_raw_json'
-    tmp_table = tmp_client.dataset.table("clincialtrials_tmp_{}".format(gen_job_name()))
-    with contextlib.suppress(NotFound):
-        table = client.get_table(table_name)
-        table.gcbq_table.delete()
-
-    table = client.create_storage_backed_table(
-        table_name,
-        schema,
-        storage_path
-    )
-    sql_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'view.sql')
-    with open(sql_path, 'r') as sql_file:
-        job = table.gcbq_client.run_async_query(gen_job_name(), sql_file.read())
-        job.destination = tmp_table
-        job.use_legacy_sql = False
-        job.write_disposition = 'WRITE_TRUNCATE'
-        job.begin()
-
-        # The call to .run_async_query() might return before results are actually ready.
-        # See https://cloud.google.com/bigquery/docs/reference/rest/v2/jobs/query#timeoutMs
-        wait_for_job(job)
-    t1_exporter = TableExporter(tmp_table, STORAGE_PREFIX + 'test_table-')
-    t1_exporter.export_to_storage()
-
-    #with tempfile.NamedTemporaryFile(mode='r+') as f:
-    with open('/tmp/clinical_trials.csv', 'w') as f:
-        t1_exporter.download_from_storage_and_unzip(f)
-
-
 if __name__ == '__main__':
     with contextlib.suppress(OSError):
         os.remove("/tmp/clinical_trials.csv")
     try:
-        download_and_extract()
-        convert_to_json()
-        upload_to_cloud()
-        convert_and_download()
+        enormous_zipfile = download_and_extract()
+        fabricate_csv(enormous_zipfile, '/tmp/clinical_trials.csv')
+
         env = os.environ.copy()
         with open(os.environ.get("UPLOAD_SETTINGS", "/etc/profile.d/fdaaa_staging.sh")) as e:
             for k, _, v in re.findall(r"""^\s+export\s+([A-Z][A-Z0-9_]*)=([\"']?)(\S+|.*)\2""", e.read(), re.MULTILINE):
