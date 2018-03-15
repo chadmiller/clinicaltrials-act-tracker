@@ -4,11 +4,7 @@ import traceback
 import sys
 import os
 import subprocess
-import json
-import glob
-import datetime
 import tempfile
-import shutil
 import requests
 import contextlib
 import re
