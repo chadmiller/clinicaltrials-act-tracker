@@ -14,6 +14,7 @@ import contextlib
 import re
 import zipfile
 from csv import DictWriter
+import multiprocessing
 
 import extraction
 
@@ -36,6 +37,8 @@ def document_stream(zip_filename):
 def fabricate_csv(input_filename, output_filename):
     _, temp_output_filename = tempfile.mkstemp()
 
+    pool = multiprocessing.Pool()
+
     columns = [
             'nct_id', 'act_flag', 'included_pact_flag', 'location', 'exported', 'phase', 'start_date', 'available_completion_date', 'legacy_fda_regulated', 'primary_completion_date_used', 'has_results', 'results_submitted_date', 'has_certificate', 'certificate_date', 'results_due', 'study_status', 'study_type', 'primary_purpose', 'fda_reg_drug', 'fda_reg_device', 'sponsor', 'sponsor_type', 'url', 'title', 'condition', 'condition_mesh', 'intervention', 'intervention_mesh',
 
@@ -43,14 +46,18 @@ def fabricate_csv(input_filename, output_filename):
     with open(temp_output_filename, 'w') as out:
         csv = DictWriter(out, columns)
         csv.writeheader()
+
+        def result_callback(row):
+            if row:
+                csv.writerow(row)
+
+        def error_callback(exception):
+            logging.exception("Couldn't get data from %s.", name, exception=exception)
+
         for name, xmldoc in document_stream(input_filename):
-            try:
-                row = extraction.document_to_record(xmldoc)
-                if row:
-                    csv.writerow(row)
-            except Exception as exc:
-                logging.exception("Couldn't get data from %s.", name)
-                raise
+            pool.apply_async(extraction.document_to_record, (xmldoc, name), callback=result_callback, error_callback=error_callback)
+        pool.close()
+        pool.join()
 
     os.rename(temp_output_filename, output_filename)
 

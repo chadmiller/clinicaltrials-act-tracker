@@ -30,7 +30,7 @@ def first_date(r, paths):
     return None, None
 
 
-def document_to_record(xml_bytes):
+def document_to_record(xml_bytes, name):
     r = ET.fromstring(xml_bytes)
     d = {}
 
