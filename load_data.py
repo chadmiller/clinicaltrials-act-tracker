@@ -12,7 +12,7 @@ import shutil
 import requests
 import contextlib
 import re
-import zipfile
+from zipfile import ZipFile
 from csv import DictWriter
 import multiprocessing
 
@@ -27,11 +27,13 @@ logging.basicConfig(filename='{}data_load.log'.format(WORKING_VOLUME), level=log
 
 
 def document_stream(zip_filename):
-    with zipfile.ZipFile(zip_filename, 'r') as enormous_zipfile:
-        for name in enormous_zipfile.namelist():
-            if "NCT" not in name or not name.endswith(".xml"):
-                continue
-            yield name, enormous_zipfile.read(name)
+    logging.debug("Beginning incremental extraction of %s", zip_filename)
+    with open(zip_filename, 'rb') as z:
+        with ZipFile(z) as enormous_zipfile:
+            for name in enormous_zipfile.namelist():
+                if "NCT" not in name or not name.endswith(".xml"):
+                    continue
+                yield name, enormous_zipfile.read(name)
 
 
 def fabricate_csv(input_filename, output_filename):
