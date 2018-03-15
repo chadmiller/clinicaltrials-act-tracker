@@ -102,8 +102,11 @@ if __name__ == '__main__':
             format="%(asctime)s %(filename)s:%(lineno)s %(message)s", level=logging.DEBUG)
     try:
         logging.debug("Starting.")
+        destination = os.environ.get("TRIALS_OUTPUT_CSV", "/tmp/clinical_trials.csv")
+        _, csv_output_temp = tempfile.mkstemp()
         enormous_zipfile = download_and_extract()
-        fabricate_csv(enormous_zipfile, '/tmp/clinical_trials.csv')
+        fabricate_csv(enormous_zipfile, csv_output_temp)
+        os.rename(csv_output_temp, destination)
 
         env = os.environ.copy()
         with open(os.environ.get("UPLOAD_SETTINGS", "/etc/profile.d/fdaaa_staging.sh")) as e:
