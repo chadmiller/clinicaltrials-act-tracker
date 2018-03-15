@@ -53,6 +53,7 @@ def document_to_record(xml_bytes):
     completion_date, completion_date_is_exact = first_date(r, ["completion_date"])
     available_completion_date = primary_completion_date or completion_date
     intervention = st(r.find("intervention"))
+    location = st(r.find("location"))
 
     is_fda_regulated = fda_reg_drug == "Yes" or fda_reg_device == "Yes"   # Probably wrong.
 
@@ -95,7 +96,7 @@ def document_to_record(xml_bytes):
     d["nct_id"] = st(r.find("id_info/nct_id"))
     d["act_flag"] = act_flag
     d["included_pact_flag"] = included_pact_flag
-    d["location"] = st(r.find("location"))
+    d["location"] = location
     d["exported"] = st(r.find("oversight_info/is_us_export"))
     d["phase"] = phase
     d["start_date"] = start_date.strftime("%Y-%m-%d")
