@@ -15,6 +15,7 @@ import re
 from zipfile import ZipFile
 from csv import DictWriter
 import multiprocessing
+from time import time
 
 import extraction
 
@@ -65,14 +66,23 @@ def fabricate_csv(input_filename, output_filename):
 
 
 def download_and_extract():
-    """Clean up from past runs, then download into a temp location and move the
-    result into place.
+    """If file is more than 20 hours old, download into a temp location and
+    move the result into place.
+
+    We can't extract as we download (bah!) because ZIP format places its index
+    at the end of the file.
     """
-    logging.info("Downloading. This takes at least 30 mins on a fast connection!")
     url = 'https://clinicaltrials.gov/AllPublicXML.zip'
-    data_file = os.path.join(WORKING_DIR, "clinicaltrialsgov-allxml.zip")
-    return data_file
-    subprocess.check_call(["wget", "-q", "-O", data_file, url])
+    destination = os.path.join(WORKING_DIR, "clinicaltrialsgov-allxml.zip")
+    if not os.path.exists(destination) or os.path.getmtime(destination) < (time() - 72000):
+        _, download_temp = tempfile.mkstemp(prefix="clinicaltrialsgovzip", dir=WORKING_DIR)
+        logging.info("Downloading %s to %s. This may take some time.", url, download_temp)
+        subprocess.check_call(["wget", "--no-use-server-timestamps", "--quiet", "-O", download_temp, url])
+        logging.info("Finished downloading %s and saving as %s", url, destination)
+        os.rename(download_temp, destination)
+    else:
+        logging.info("Discovered fresh %s", destination)
+    return destination
 
 
 def notify_slack(message):
