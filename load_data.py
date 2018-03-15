@@ -36,15 +36,13 @@ def document_stream(zip_filename):
 
 
 def fabricate_csv(input_filename, output_filename):
-    _, temp_output_filename = tempfile.mkstemp()
-
     pool = multiprocessing.Pool()
 
     columns = [
             'nct_id', 'act_flag', 'included_pact_flag', 'location', 'exported', 'phase', 'start_date', 'available_completion_date', 'legacy_fda_regulated', 'primary_completion_date_used', 'has_results', 'results_submitted_date', 'has_certificate', 'certificate_date', 'results_due', 'study_status', 'study_type', 'primary_purpose', 'fda_reg_drug', 'fda_reg_device', 'sponsor', 'sponsor_type', 'url', 'title', 'condition', 'condition_mesh', 'intervention', 'intervention_mesh',
 
             'brief_title', 'collaborators', 'defaulted_cd_flag', 'defaulted_date', 'defaulted_pcd_flag', 'discrep_date_status', 'late_cert', 'official_title', ]
-    with open(temp_output_filename, 'w') as out:
+    with open(output_filename, 'w') as out:
         csv = DictWriter(out, columns)
         csv.writeheader()
 
@@ -55,12 +53,14 @@ def fabricate_csv(input_filename, output_filename):
         def error_callback(exception):
             logging.exception("Couldn't get data from %s.", name, exception=exception)
 
+        logging.debug("Beginning parallel processing of tasks.")
         for name, xmldoc in document_stream(input_filename):
             pool.apply_async(extraction.document_to_record, (xmldoc, name), callback=result_callback, error_callback=error_callback)
+
+        logging.debug("Waiting for jobs to finish.")
         pool.close()
         pool.join()
-
-    os.rename(temp_output_filename, output_filename)
+        logging.debug("Jobs have finished.")
 
 
 def download_and_extract():
@@ -105,6 +105,7 @@ if __name__ == '__main__':
             filename=os.path.join(WORKING_VOLUME, 'data_load.log'),
             format="%(asctime)s %(filename)s:%(lineno)s %(message)s", level=logging.DEBUG)
     try:
+        logging.debug("Starting.")
         enormous_zipfile = download_and_extract()
         fabricate_csv(enormous_zipfile, '/tmp/clinical_trials.csv')
 
@@ -117,3 +118,5 @@ if __name__ == '__main__':
     except:
         notify_slack("Error in FDAAA import: {}".format(traceback.format_exc()))
         raise
+    finally:
+        logging.debug("Ending.")
