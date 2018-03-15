@@ -24,8 +24,6 @@ STORAGE_PREFIX = 'clinicaltrials-data/'
 WORKING_VOLUME = os.environ.get('DATA_DIR', '/mnt/volume-lon1-01/')   # location with at least 10GB space
 WORKING_DIR = os.path.join(WORKING_VOLUME, STORAGE_PREFIX)
 
-logging.basicConfig(filename='{}data_load.log'.format(WORKING_VOLUME), level=logging.DEBUG)
-
 
 def document_stream(zip_filename):
     logging.debug("Beginning incremental extraction of %s", zip_filename)
@@ -103,8 +101,9 @@ def notify_slack(message):
 
 
 if __name__ == '__main__':
-    with contextlib.suppress(OSError):
-        os.remove("/tmp/clinical_trials.csv")
+    logging.basicConfig(
+            filename=os.path.join(WORKING_VOLUME, 'data_load.log'),
+            format="%(asctime)s %(filename)s:%(lineno)s %(message)s", level=logging.DEBUG)
     try:
         enormous_zipfile = download_and_extract()
         fabricate_csv(enormous_zipfile, '/tmp/clinical_trials.csv')
