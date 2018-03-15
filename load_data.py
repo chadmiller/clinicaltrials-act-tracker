@@ -112,7 +112,8 @@ if __name__ == '__main__':
         with open(os.environ.get("UPLOAD_SETTINGS", "/etc/profile.d/fdaaa_staging.sh")) as e:
             for k, _, v in re.findall(r"""^\s+export\s+([A-Z][A-Z0-9_]*)=([\"']?)(\S+|.*)\2""", e.read(), re.MULTILINE):
                 env[k] = v
-        subprocess.check_call(["/var/www/fdaaa_staging/venv/bin/python", "/var/www/fdaaa_staging/clinicaltrials-act-tracker/clinicaltrials/manage.py", "process_data", "--input-csv=/tmp/clinical_trials.csv", "--settings=frontend.settings"], env=env)
+        subprocess.check_call([sys.executable, os.path.join(os.path.dirname(__file__), "clinicaltrials/manage.py"), "process_data", "--input-csv={0}".format(destination), "--settings=frontend.settings"], env=env)
+
         notify_slack("""Today's data uploaded to FDAAA staging: https://staging-fdaaa.ebmdatalab.net.  If this looks good, tell ebmbot to 'update fdaaa staging'""")
     except:
         notify_slack("Error in FDAAA import: {}".format(traceback.format_exc()))
