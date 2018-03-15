@@ -110,8 +110,8 @@ def document_to_record(xml_bytes, name):
     d["results_due"] = int(certificate_date is None or certificate_date + relativedelta(years=3, days=30) > now)
 
     d["primary_completion_date_used"] = int(primary_completion_date is not None)
-    d["defaulted_pcd_flag"] = int(primary_completion_date_is_exact == False)
-    d["defaulted_cd_flag"] = int(completion_date_is_exact == False)
+    d["defaulted_pcd_flag"] = int(primary_completion_date_is_exact is False)
+    d["defaulted_cd_flag"] = int(completion_date_is_exact is False)
     #last_updated_date, --The last date the trial record was updated
     d["defaulted_cd_flag"] = st(r.find("enrollment"))
     d["study_status"] = st(r.find("overall_status"))
