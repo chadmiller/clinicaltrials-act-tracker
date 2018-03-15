@@ -12,22 +12,21 @@ def st(node):
     return node.text.strip(removed)
 
 
-def first_date(r, paths):
-    """Render the first-nonnull value to a date, conservatively making day-less
-    months into end-of-month dates."""
-    # TODO(chad): Fancy date math is unnecessary. Change all date handling to string handling and compare dates lexically. Worth 10 sec.
-    for path in paths:
-        val = r.find(path)
-        if val is None: continue
-        try:
-            d = datetime.strptime(val.text.strip(), "%B %d, %Y")
-            is_exact = True
-        except ValueError:
-            # No day, so push to end of that month.
-            d = datetime.strptime(val.text.strip(), "%B %Y").replace(day=1) + relativedelta(months=+1) + relativedelta(days=-1)
-            is_exact = False
-        return d, is_exact
-    return None, None
+def normal_date(node):
+    """Render to a date, conservatively making day-less months into
+    end-of-month dates."""
+    # TODO(chad): Fancy date math is unnecessary. Change all date handling to
+    # string handling and compare dates lexically. Worth 10 sec.
+    if node is None:
+        return None, None
+    try:
+        d = datetime.strptime(node.text.strip(), "%B %d, %Y")
+        is_exact = True
+    except ValueError:
+        # No day, so push to end of that month.
+        d = datetime.strptime(node.text.strip(), "%B %Y").replace(day=1) + relativedelta(months=+1) + relativedelta(days=-1)
+        is_exact = False
+    return d, is_exact
 
 
 def document_to_record(xml_bytes, name):
@@ -46,11 +45,11 @@ def document_to_record(xml_bytes, name):
     now = datetime.now()
 
     study_type = st(r.find("study_type"))
-    start_date, _ = first_date(r, ["start_date"])
+    start_date, _ = normal_date(r.find("start_date"))
     fda_reg_drug = st(r.find("oversight_info/is_fda_regulated_drug"))
     fda_reg_device = st(r.find("oversight_info/is_fda_regulated_device"))
-    primary_completion_date, primary_completion_date_is_exact = first_date(r, ["primary_completion_date"])
-    completion_date, completion_date_is_exact = first_date(r, ["completion_date"])
+    primary_completion_date, primary_completion_date_is_exact = normal_date(r.find("primary_completion_date"))
+    completion_date, completion_date_is_exact = normal_date(r.find("completion_date"))
     available_completion_date = primary_completion_date or completion_date
     intervention = st(r.find("intervention"))
     location = st(r.find("location"))
@@ -77,7 +76,7 @@ def document_to_record(xml_bytes, name):
 
     if included_pact_flag != 1 and act_flag != 1: return
 
-    certificate_date, _ = first_date(r, ["disposition_first_submitted"])
+    certificate_date, _ = normal_date(r.find("disposition_first_submitted"))
     has_results = int(r.find("clinical_results") is not None)
 
     official_title = st(r.find("official_title")) 
@@ -104,7 +103,7 @@ def document_to_record(xml_bytes, name):
     d["legacy_fda_regulated"] = int(is_fda_regulated)
     d["primary_completion_date_used"] = int(primary_completion_date is not None)
     d["has_results"] = has_results
-    d["results_submitted_date"], _ = first_date(r, ["results_first_submitted"])
+    d["results_submitted_date"], _ = normal_date(r.find("results_first_submitted"))
     d["has_certificate"] = int(certificate_date is not None)
     d["certificate_date"] = certificate_date
     d["results_due"] = int(certificate_date is None or certificate_date + relativedelta(years=3, days=30) > now)
