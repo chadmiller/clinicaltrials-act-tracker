@@ -79,7 +79,7 @@ def document_to_record(xml_bytes, name):
     certificate_date, _ = normal_date(r.find("disposition_first_submitted"))
     has_results = int(r.find("clinical_results") is not None)
 
-    official_title = st(r.find("official_title")) 
+    official_title = st(r.find("official_title"))
     brief_title = st(r.find("brief_title"))
 
     if (primary_completion_date is None or primary_completion_date < now) and \
@@ -90,7 +90,8 @@ def document_to_record(xml_bytes, name):
         discrep_date_status = 0
 
     collaborators = " / ".join("{0}={1}".format(i.find("agency").text, i.find("agency_class").text.replace("=", " eq ")) for i in r.findall("sponsors/lead_sponsor")+r.findall("sponsors/collaborator"))
-    
+    results_first_submitted_date, _ = normal_date(r.find("results_first_submitted"))
+
 
     d["nct_id"] = st(r.find("id_info/nct_id"))
     d["act_flag"] = act_flag
@@ -98,14 +99,14 @@ def document_to_record(xml_bytes, name):
     d["location"] = location
     d["exported"] = st(r.find("oversight_info/is_us_export"))
     d["phase"] = phase
-    d["start_date"] = start_date.strftime("%Y-%m-%d")
-    d["available_completion_date"] = available_completion_date.strftime("%Y-%m-%d")
+    d["start_date"] = start_date.strftime("%Y-%m-%d") if start_date else None
+    d["available_completion_date"] = available_completion_date.strftime("%Y-%m-%d") if available_completion_date else None
     d["legacy_fda_regulated"] = int(is_fda_regulated)
     d["primary_completion_date_used"] = int(primary_completion_date is not None)
     d["has_results"] = has_results
-    d["results_submitted_date"], _ = normal_date(r.find("results_first_submitted"))
+    d["results_submitted_date"] = results_first_submitted_date.strftime("%Y-%m-%d") if results_first_submitted_date else None
     d["has_certificate"] = int(certificate_date is not None)
-    d["certificate_date"] = certificate_date
+    d["certificate_date"] = certificate_date.strftime("%Y-%m-%d") if certificate_date else None
     d["results_due"] = int(certificate_date is None or certificate_date + relativedelta(years=3, days=30) > now)
 
     d["primary_completion_date_used"] = int(primary_completion_date is not None)
